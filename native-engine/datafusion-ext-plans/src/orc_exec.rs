@@ -304,12 +304,36 @@ impl SchemaAdapter {
         let mut projection = Vec::with_capacity(self.table_schema.fields().len());
         let mut field_mappings = vec![None; self.table_schema.fields().len()];
 
-        for named_column in orc_file_meta.root_data_type().children() {
-            if let Some((table_idx, _table_field)) =
-                self.table_schema.fields().find(named_column.name())
-            {
-                field_mappings[table_idx] = Some(projection.len());
-                projection.push(named_column.data_type().column_index());
+        let file_named_columns = orc_file_meta.root_data_type().children();
+        if file_named_columns
+            .iter()
+            .all(|named_col| named_col.name().starts_with("_col"))
+        {
+            let table_schema_fields = self.table_schema.fields();
+            assert!(
+                file_named_columns.len() <= table_schema_fields.len(),
+                "The given data schema {:?} (length:{}) has fewer {} fields than \
+                the actual ORC physical schema {:?} (length:{})",
+                table_schema_fields,
+                table_schema_fields.len(),
+                file_named_columns.len() - table_schema_fields.len(),
+                file_named_columns,
+                file_named_columns.len()
+            );
+            for (col_idx, named_column) in file_named_columns.iter().enumerate() {
+                if col_idx < table_schema_fields.len() {
+                    field_mappings[col_idx] = Some(projection.len());
+                    projection.push(named_column.data_type().column_index());
+                }
+            }
+        } else {
+            for named_column in file_named_columns {
+                if let Some((table_idx, _table_field)) =
+                    self.table_schema.fields().find(named_column.name())
+                {
+                    field_mappings[table_idx] = Some(projection.len());
+                    projection.push(named_column.data_type().column_index());
+                }
             }
         }
 
